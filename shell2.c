@@ -21,6 +21,17 @@ void handle_exit()
     exit(0); // Exit if the command is 'quit'
 }
 
+void handle_echo(char **argv) {
+    int i = 1;
+    while (argv[i] != NULL) {
+        printf("%s", argv[i]);
+        if (argv[i + 1] != NULL)
+            printf(" ");  // Add space between words, but not after the last word
+        i++;
+    }
+    printf("\n");  // Add a newline at the end
+}
+
 void check_redirection_operators(int* redirect, char** argv, char** outfile, int limit)
 {
     for (int j = 0; j < limit; j++) {
@@ -101,6 +112,12 @@ int main()
             handle_exit();
         }
 
+        // Check if the command is 'quit'
+        if (strcmp(command, "echo") == 0) {
+            handle_echo(argv);
+            continue; // Skip the fork and execvp process
+        }
+
         /* Does command line end with & */
         amper = 0;
         if (i > 1 && strcmp(argv[i - 1], "&") == 0)
@@ -108,8 +125,6 @@ int main()
             amper = 1;
             argv[--i] = NULL; // Correctly update `i` and ensure argv is NULL-terminated
         }
-
-
 
         redirect = 0;
         outfile = NULL;
