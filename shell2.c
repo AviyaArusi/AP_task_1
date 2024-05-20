@@ -32,6 +32,17 @@ void handle_echo(char **argv) {
     printf("\n");  // Add a newline at the end
 }
 
+void handle_cd(char* dir_name)
+{
+    if (dir_name == NULL) {
+        fprintf(stderr, "cd: expected argument\n");
+    } else {
+        if (chdir(dir_name) != 0) {
+            perror("cd");
+        }
+    }
+}
+
 void check_redirection_operators(int* redirect, char** argv, char** outfile, int limit)
 {
     for (int j = 0; j < limit; j++) {
@@ -112,9 +123,15 @@ int main()
             handle_exit();
         }
 
-        // Check if the command is 'quit'
+        // Check if the command is 'echo'
         if (strcmp(command, "echo") == 0) {
             handle_echo(argv);
+            continue; // Skip the fork and execvp process
+        }
+
+        // Check if the command is 'cd'
+        if (strcmp(command, "cd") == 0) {
+            handle_cd(argv[1]);
             continue; // Skip the fork and execvp process
         }
 
