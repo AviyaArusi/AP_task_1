@@ -9,7 +9,7 @@
 #include <signal.h>
 
 
-void ignore_interrupt(int)
+void ignore_interrupt(int num)
 {
     printf("\nYou typed Control-C!\n");
     printf("hello: ");
@@ -19,6 +19,50 @@ void ignore_interrupt(int)
 void handle_exit()
 {
     exit(0); // Exit if the command is 'quit'
+}
+
+void check_redirection_operators(int* redirect, char** argv, char** outfile, int limit)
+{
+    for (int j = 0; j < limit; j++) {
+        if (strcmp(argv[j], "2>") == 0) {
+            *redirect = 3;
+            argv[j] = NULL;
+            *outfile = argv[j + 1];
+            break;
+        } else if (strcmp(argv[j], ">>") == 0) {
+            *redirect = 2;
+            argv[j] = NULL;
+            *outfile = argv[j + 1];
+            break;
+        } else if (strcmp(argv[j], ">") == 0) {
+            *redirect = 1;
+            argv[j] = NULL;
+            *outfile = argv[j + 1];
+            break;
+        }
+    }
+}
+void redirected(int redirect_type, char* outfile)
+{
+    int fd;
+    // Handle output redirection ">"
+    if (redirect_type == 1) {
+        fd = creat(outfile, 0660);
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+    }
+    // Handle append redirection ">>"
+    if (redirect_type == 2) {
+        fd = open(outfile, O_WRONLY | O_CREAT | O_APPEND, 0660);
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+    }
+    // Handle stderr redirection "2>"
+    if (redirect_type == 3) {
+        fd = creat(outfile, 0660);
+        dup2(fd, STDERR_FILENO);
+        close(fd);
+    }
 }
 
 int main()
@@ -42,9 +86,9 @@ int main()
         token = strtok (command," ");
         while (token != NULL)
         {
-            argv[i] = token;
+            argv[i++] = token;
             token = strtok (NULL, " ");
-            i++;
+//            i++;
         }
         argv[i] = NULL;
 
@@ -58,33 +102,29 @@ int main()
         }
 
         /* Does command line end with & */
-        if (! strcmp(argv[i - 1], "&")) {
+        amper = 0;
+        if (i > 1 && strcmp(argv[i - 1], "&") == 0)
+        {
             amper = 1;
-            argv[i - 1] = NULL;
+            argv[--i] = NULL; // Correctly update `i` and ensure argv is NULL-terminated
         }
-        else
-            amper = 0;
 
-        if (! strcmp(argv[i - 2], ">")) {
-            redirect = 1;
-            argv[i - 2] = NULL;
-            outfile = argv[i - 1];
-            }
-        else
-            redirect = 0;
+
+
+        redirect = 0;
+        outfile = NULL;
+        check_redirection_operators(&redirect, argv, &outfile, i);
 
         /* for commands not part of the shell command language */
 
         if (fork() == 0) {
             /* redirection of IO ? */
             if (redirect) {
-                fd = creat(outfile, 0660);
-                close (STDOUT_FILENO) ;
-                dup(fd);
-                close(fd);
+                redirected(redirect, outfile);
                 /* stdout is now redirected */
             }
             execvp(argv[0], argv);
+            exit(1);
         }
         /* parent continues here */
         if (amper == 0)
