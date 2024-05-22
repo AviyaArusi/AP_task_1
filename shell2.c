@@ -16,6 +16,8 @@ char SHELLNAME[1024] = "hello: ";
 int MAX_COMMAND_LENGTH = 1024;
 Queue CMD_QUEUE;
 KeyValueTable TABLE;
+
+
 void handle_echo_variable(char *key)
 {
     char check_key[1024];
@@ -33,12 +35,13 @@ void handle_echo_variable(char *key)
     char *value = getValue(&TABLE, check_key);
     printf("%s\n", value);
 }
+
+
 void handle_variables_shell(char **argv)
 {
     char key[1024];
     key[0] = '\0';
     char value[1024];
-    value[0] = '\0';
     int index = 0;
     for (int i = 0; argv[0][i] != '\0'; i++)
     {
@@ -185,7 +188,7 @@ void restoreOriginalMode(struct termios *original)
 }
 
 // Function to read the command char char
-void readCommand(char *command)
+void read_command(char *command)
 {
     int index = 0;
     char c = '\0';
@@ -296,6 +299,26 @@ void readCommand(char *command)
     }
 }
 
+void handle_read(char **argv)
+{
+    char key[1024];
+    key[0] = '\0';
+    char value[1024];
+    value[0] = '\0';
+    if (argv[1] != NULL)
+    {
+        strcpy(key , argv[1]);
+    }
+    else
+    {
+        strcpy(key ,"REPLY");
+    }
+    printf("");
+    //fgets(value, 1024, stdin);
+    read_command(value);
+    insert(&TABLE, key, value);
+}
+
 int main()
 {
     char command[1024];
@@ -320,7 +343,7 @@ int main()
         printf("%s", SHELLNAME);
         fflush(stdout); // Ensure the prompt is displayed immediately
 
-        readCommand(command); // Read command with arrow key handling
+        read_command(command); // Read command with arrow key handling
         /* parse command line */
         i = 0;
         token = strtok(command, " ");
@@ -349,7 +372,14 @@ int main()
         {
             handle_exit();
         }
-
+        
+        // Read the command and store it
+        if (strcmp(argv[0] , "read") == 0)
+        {
+            handle_read(argv);
+            continue;
+        }
+        
         // Run the status of the last command
         if (strcmp(argv[0], "echo") == 0 && strcmp(argv[1], "$?") == 0)
         {
