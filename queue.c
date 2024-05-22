@@ -90,6 +90,21 @@ void enqueue(Queue* q, char value[]) {
     }
 }
 
+void freeQueue(Queue *q) {
+    Node *current = q->front;
+    Node *nextNode;
+
+    while (current != NULL) {
+        nextNode = current->next;
+        free(current->data); // Free the data string
+        free(current); // Free the node itself
+        current = nextNode;
+    }
+
+    q->front = q->rear = NULL; // Reset the queue pointers
+}
+
+
 
 
 

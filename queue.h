@@ -36,4 +36,7 @@ void display(Queue* q);
 // Function prototype for strdup
 char* strdup(const char* str);
 
+// Function to free the allocate space
+void freeQueue(Queue *q);
+
 #endif // QUEUE_H

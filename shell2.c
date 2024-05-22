@@ -9,11 +9,50 @@
 #include <signal.h>
 #include <ncurses.h>
 #include "queue.h"
+#include "keyval_table.h"
 #include <termios.h>
 
 char SHELLNAME[1024] = "hello: ";
 int MAX_COMMAND_LENGTH = 1024;
 Queue CMD_QUEUE;
+KeyValueTable TABLE;
+void handle_echo_variable(char *key)
+{
+    char check_key[1024];
+    check_key[0] = '\0';
+    int index = 0;
+    for (int i = 0; key[i] != '\0'; i++)
+    {
+        char c = key[i];
+        if (c != '$')
+        {
+            check_key[index++] = c;
+        }
+    }
+    check_key[index] = '\0';
+    char *value = getValue(&TABLE, check_key);
+    printf("%s\n", value);
+}
+void handle_variables_shell(char **argv)
+{
+    char key[1024];
+    key[0] = '\0';
+    char value[1024];
+    value[0] = '\0';
+    int index = 0;
+    for (int i = 0; argv[0][i] != '\0'; i++)
+    {
+        char c = argv[0][i];
+        if (c != '$')
+        {
+            key[index++] = c;
+        }
+    }
+    key[index] = '\0';
+    value[strlen(argv[2])] = '\0';
+    insert(&TABLE, key, argv[2]);
+}
+
 void ignore_interrupt(int num)
 {
     printf("\nYou typed Control-C!\n");
@@ -23,6 +62,8 @@ void ignore_interrupt(int num)
 
 void handle_exit()
 {
+    freeTable(&TABLE);
+    freeQueue(&CMD_QUEUE);
     exit(0); // Exit if the command is 'quit'
 }
 
@@ -45,6 +86,18 @@ void handle_prompt(char name[])
     strcpy(SHELLNAME, name);
 }
 
+void handle_last_cmd()
+{
+    char *cmd = CMD_QUEUE.front->next->data;
+    // int status = system(cmd);
+    printf("%s%s \n", SHELLNAME, cmd);
+}
+
+void handle_last_exec()
+{
+    char *cmd = CMD_QUEUE.front->next->data;
+    int status = system(cmd);
+}
 void handle_cd(char *dir_name)
 {
     if (dir_name == NULL)
@@ -131,6 +184,7 @@ void restoreOriginalMode(struct termios *original)
     tcsetattr(STDIN_FILENO, TCSAFLUSH, original);
 }
 
+// Function to read the command char char
 void readCommand(char *command)
 {
     int index = 0;
@@ -194,7 +248,7 @@ void readCommand(char *command)
                     index = strlen(command);
                     fflush(stdout);
                 }
-                else if (curr->prev == NULL)
+                else // if (curr->prev == NULL)
                 {
                     while (index > 0)
                     {
@@ -216,6 +270,7 @@ void readCommand(char *command)
             {
                 enqueue(&CMD_QUEUE, command);
             }
+            arrow_up_counter = 0;
             break;
         }
         else if (c == 127)
@@ -240,6 +295,7 @@ void readCommand(char *command)
         }
     }
 }
+
 int main()
 {
     char command[1024];
@@ -248,13 +304,14 @@ int main()
     int i, fd, amper, redirect, retid, status;
     char *argv[10];
     char c;
-
     struct termios original;
     setRawMode(&original); // Set terminal to raw mode
 
-    // Create a queue for the command
-
+    // Initialize a queue for the command
     initializeQueue(&CMD_QUEUE);
+
+    // Initialize a table for the variables
+    initializeTable(&TABLE);
 
     signal(SIGINT, ignore_interrupt); // If the user press CTL+C handel it.
 
@@ -264,13 +321,6 @@ int main()
         fflush(stdout); // Ensure the prompt is displayed immediately
 
         readCommand(command); // Read command with arrow key handling
-        // command[strlen(command)] = '\0';
-        // printf("\n");
-
-        // fgets(command, 1024, stdin);
-        // char c = getchar();
-
-        // printf("%s\n" , cmd_queue.front->data);
         /* parse command line */
         i = 0;
         token = strtok(command, " ");
@@ -280,6 +330,15 @@ int main()
             token = strtok(NULL, " ");
         }
         argv[i] = NULL;
+
+        if (strlen(command) > 0)
+        {
+            char c = argv[0][0];
+            if (c == '$' && argv[1] != NULL && strcmp(argv[1], "=") == 0 && argv[2] != NULL)
+            {
+                handle_variables_shell(argv);
+            }
+        }
 
         /* Is command empty */
         if (argv[0] == NULL)
@@ -291,11 +350,29 @@ int main()
             handle_exit();
         }
 
+        // Run the status of the last command
+        if (strcmp(argv[0], "echo") == 0 && strcmp(argv[1], "$?") == 0)
+        {
+            handle_last_cmd();
+            continue;
+        }
+        // Print the value of the variable
+        if (strcmp(argv[0], "echo") == 0 && argv[1][0] == '$')
+        {
+            handle_echo_variable(argv[1]);
+            continue; // Skip the fork and execvp process
+        }
         // Check if the command is 'echo'
-        if (strcmp(command, "echo") == 0)
+        if (strcmp(argv[0], "echo") == 0 && strcmp(argv[1], "$?") != 0)
         {
             handle_echo(argv);
             continue; // Skip the fork and execvp process
+        }
+
+        // Check if the command is 'cd'
+        if (strcmp(command, "!!") == 0)
+        {
+            handle_last_exec();
         }
 
         // Check if the command is 'cd'

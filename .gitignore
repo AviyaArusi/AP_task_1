@@ -1,2 +1,9 @@
-myshell
+
 .txt
+
+# Ignore object files and executables
+*.o
+myshell
+
+# Ignore dynamically linked libraries
+*.so
