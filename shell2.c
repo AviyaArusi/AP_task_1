@@ -101,6 +101,7 @@ void handle_last_exec()
     char *cmd = CMD_QUEUE.front->next->data;
     int status = system(cmd);
 }
+
 void handle_cd(char *dir_name)
 {
     if (dir_name == NULL)
