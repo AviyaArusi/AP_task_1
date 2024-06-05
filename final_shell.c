@@ -24,6 +24,8 @@ int MAX_COMMAND_LENGTH = 1024;
 int LCS = 0; // Global variable to store the exit status of the last executed command
 Queue CMD_QUEUE;
 KeyValueTable TABLE;
+struct termios original;
+int VAR = 0;
 
 void ignore_interrupt(int num)
 {
@@ -50,6 +52,32 @@ void restoreOriginalMode(struct termios *original)
     tcsetattr(STDIN_FILENO, TCSAFLUSH, original);
 }
 
+void handle_cat(char *outfile)
+{
+    restoreOriginalMode(&original);
+
+    FILE *fp;
+    char buffer[1024]; // Adjust buffer size as needed
+
+    // Open the file "ron.txt" in write mode ("w")
+    fp = fopen(outfile, "w");
+
+    // Use a loop to get user input line by line
+    while (fgets(buffer, sizeof(buffer), stdin) != NULL)
+    {
+        if (fputs(buffer, fp) == EOF)
+        {
+            perror("Error writing to file");
+            fclose(fp);
+            exit(EXIT_FAILURE);
+        }
+    }
+    fclose(fp);
+    setRawMode(&original);
+    LCS = 0;
+    printf("Control-D\n");
+}
+
 int check_redirection_operators(char **argv, char **outfile, int limit)
 {
     for (int j = 0; j < limit; j++)
@@ -66,6 +94,10 @@ int check_redirection_operators(char **argv, char **outfile, int limit)
             *outfile = argv[j + 1];
             return 2;
         }
+        else if (strcmp(argv[j], ">") == 0 && strcmp(argv[j - 1], "cat") == 0)
+        {
+            return 4;
+        }
         else if (strcmp(argv[j], ">") == 0)
         {
             argv[j] = NULL;
@@ -78,7 +110,6 @@ int check_redirection_operators(char **argv, char **outfile, int limit)
 
 void redirected(int redirect_type, char *outfile)
 {
-    //    printf("This is the name of the output file --> %s and red int is --> %d \n", outfile, redirect_type);
     int fd;
     // Handle output redirection ">"
     if (redirect_type == 1)
@@ -130,7 +161,6 @@ char **parse_command(char **start_token, int *argc)
     {
         if (*token == '\0')
             continue; // Skip any empty tokens
-        //        printf("Copy the word: %s , into argv\n", token);
         argv[i++] = strdup(token);
     }
 
@@ -189,6 +219,7 @@ void handle_echo(char **argv)
             printf(" "); // Add space between words, but not after the last word
         i++;
     }
+    LCS = 0;
     printf("\n"); // Add a newline at the end
 }
 
@@ -207,6 +238,7 @@ void handle_echo_variable(char *key)
     }
     check_key[index] = '\0';
     char *value = getValue(&TABLE, check_key);
+    LCS = 0;
     printf("%s\n", value);
 }
 
@@ -228,7 +260,6 @@ void read_command(char *command)
     char paragraph[1024 * 10];
     paragraph[0] = '\0';
     command[0] = '\0';
-
     while (1)
     {
         c = getchar();
@@ -276,7 +307,7 @@ void read_command(char *command)
                     {
                         index--;
                         command[index] = '\0';
-                        printf("\b \b"); // Move cursor back, print space to erase character, move cursor back again
+                        printf("\b \b");
                         fflush(stdout);
                     }
                     strcpy(command, curr->data);
@@ -284,13 +315,13 @@ void read_command(char *command)
                     index = strlen(command);
                     fflush(stdout);
                 }
-                else // if (curr->prev == NULL)
+                else
                 {
                     while (index > 0)
                     {
                         index--;
                         command[index] = '\0';
-                        printf("\b \b"); // Move cursor back, print space to erase character, move cursor back again
+                        printf("\b \b");
                         arrow_up_counter = 0;
                         fflush(stdout);
                     }
@@ -300,8 +331,10 @@ void read_command(char *command)
         }
         else if (c == '\n')
         { // Enter key
+
             command[index] = '\0';
             printf("\n");
+
             if (if_flag)
             {
                 strcat(paragraph, command);
@@ -313,6 +346,8 @@ void read_command(char *command)
                 if (execute_flag)
                 {
                     system(paragraph);
+                    paragraph[strlen(paragraph)] = '\0';
+                    enqueue(&CMD_QUEUE, paragraph);
                     paragraph[0] = '\0';
                     if_flag = 0;
                     execute_flag = 0;
@@ -321,9 +356,32 @@ void read_command(char *command)
             }
             else
             {
+                if (VAR)
+                {
+                    VAR = 0;
+                    break;
+                }
+
                 if (strlen(command) > 0)
                 {
                     enqueue(&CMD_QUEUE, command);
+                }
+                int counter = 0;
+                if (4 < strlen(command))
+                {
+                    if (command[0] == 'i' && command[1] == 'f')
+                    {
+                        counter++;
+                    }
+
+                    if (command[strlen(command) - 3] == 'f' && command[strlen(command) - 2] == 'i')
+                    {
+                        counter++;
+                    }
+                }
+                if (counter == 2)
+                {
+                    system(command);
                 }
                 break;
             }
@@ -366,9 +424,6 @@ void handle_last_exec()
 void handle_last_cmd()
 {
     printf("%d\n", LCS);
-    //    char *cmd = CMD_QUEUE.front->next->data;
-    //    // int status = system(cmd);
-    //    printf("%s%s \n", SHELLNAME, cmd);
 }
 
 void handle_read(char **argv)
@@ -385,12 +440,33 @@ void handle_read(char **argv)
     {
         strcpy(key, "REPLY");
     }
+    LCS = 0; 
     printf("");
-    // fgets(value, 1024, stdin);
+    VAR = 1;
     read_command(value);
     insert(&TABLE, key, value);
 }
-
+void check_echo(char **argv, int argc)
+{
+    // Run the status of the last command
+    if (strcmp(argv[1], "$?") == 0) // with the ?
+    {
+        handle_last_cmd();
+        return;
+    }
+    // Print the value of the variable
+    if (argv[1][0] == '$')
+    {
+        handle_echo_variable(argv[1]);
+        return; // Skip the fork and execvp process
+    }
+    // Check if the command is 'echo'
+    if (strcmp(argv[1], "$?") != 0)
+    {
+        handle_echo(argv);
+        return; // Skip the fork and execvp process
+    }
+}
 void handle_exce(char *command, char **argv, int argc)
 {
     if (strlen(command) > 0)
@@ -398,6 +474,7 @@ void handle_exce(char *command, char **argv, int argc)
         char c = argv[0][0];
         if (c == '$' && argv[1] != NULL && strcmp(argv[1], "=") == 0 && argv[2] != NULL)
         {
+
             handle_variables_shell(argv);
         }
     }
@@ -406,64 +483,50 @@ void handle_exce(char *command, char **argv, int argc)
     if (argv[0] == NULL)
         return;
 
-    // Check if the command is 'quit'
-    if (strcmp(command, "quit") == 0)
-    {
-        handle_exit();
-    }
-
-    // Read the command and store it
-    if (strcmp(argv[0], "read") == 0)
-    {
-        handle_read(argv);
-        return;
-    }
-
-    // Run the status of the last command
-    if (strcmp(argv[0], "echo") == 0 && strcmp(argv[1], "$?") == 0) // with the ?
-    {
-        handle_last_cmd();
-        return;
-    }
-
-    // Print the value of the variable
-    if (strcmp(argv[0], "echo") == 0 && argv[1][0] == '$')
-    {
-        handle_echo_variable(argv[1]);
-        return; // Skip the fork and execvp process
-    }
-    // Check if the command is 'echo'
-    if (strcmp(argv[0], "echo") == 0 && strcmp(argv[1], "$?") != 0)
-    {
-        handle_echo(argv);
-        return; // Skip the fork and execvp process
-    }
-
-    // Check if the command is '!!'
-    if (strcmp(argv[0], "!!") == 0)
-    {
-        handle_last_exec();
-        return; // Skip the fork and execvp process
-    }
-
-    // Check if the command is 'cd'
-    if (strcmp(argv[0], "cd") == 0)
-    {
-        handle_cd(argv[1]);
-        return; // Skip the fork and execvp process
-    }
-    //
-    // Change the name of the prompt
-    if (strcmp(argv[0], "prompt") == 0 && strcmp(argv[1], "=") == 0)
-    {
-        handle_prompt(argv[2]);
-        return; // Skip the fork and execvp process
-    }
-
     char *outfile;
     outfile = NULL;
     int redirect = check_redirection_operators(argv, &outfile, argc);
+    if (redirect == 0)
+    { // Check if the command is 'quit'
+        if (strcmp(command, "quit") == 0)
+        {
+            handle_exit();
+        }
 
+        // Read the command and store it
+        if (strcmp(argv[0], "read") == 0)
+        {
+            handle_read(argv);
+            return;
+        }
+
+        if (!strcmp(argv[0], "echo"))
+        {
+            check_echo(argv, argc);
+            return;
+        }
+
+        // Check if the command is '!!'
+        if (strcmp(argv[0], "!!") == 0)
+        {
+            handle_last_exec();
+            return; // Skip the fork and execvp process
+        }
+
+        // Check if the command is 'cd'
+        if (strcmp(argv[0], "cd") == 0)
+        {
+            handle_cd(argv[1]);
+            return; // Skip the fork and execvp process
+        }
+
+        // handle the name of the shell
+        if (strcmp(argv[0], "prompt") == 0 && strcmp(argv[1], "=") == 0)
+        {
+            handle_prompt(argv[2]);
+            return; // Skip the fork and execvp process
+        }
+    }
     // Aviya deleted a need to return!
     int retid;
     /* Does command line end with & */
@@ -475,15 +538,23 @@ void handle_exce(char *command, char **argv, int argc)
     }
 
     /* for commands not part of the shell command language */
-    //    printf("the num of redirection that found is --> %d\n" , redirect);
     int pid = fork();
     if (pid == 0)
     {
-        if (redirect) // to exec in the start of the function?!?!?!?!?!?!??!
+        if (redirect < 4 && redirect > 0) // to exec in the start of the function?!?!?!?!?!?!??!
         {
             redirected(redirect, outfile);
         }
-        execvp(argv[0], argv);
+
+        if (redirect == 4)
+        {
+            handle_cat(argv[2]);
+        }
+        else
+        {
+            execvp(argv[0], argv);
+        }
+
         exit(1);
     }
     else
@@ -508,7 +579,7 @@ int main()
     char **cmds[MAX_COMMANDS];
     int argcs[MAX_COMMANDS], cmd_count = 0;
 
-    struct termios original;
+    // struct termios original;
     setRawMode(&original); // Set terminal to raw mode
 
     // Initialize a queue for the command
@@ -516,31 +587,26 @@ int main()
     // Initialize a table for the variables
     initializeTable(&TABLE);
 
-    signal(SIGINT, ignore_interrupt); // If the user press CTL+C handel it.
+    // If the user press CTL+C handel it.
+    signal(SIGINT, ignore_interrupt);
 
     while (1)
     {
         printf("%s", SHELLNAME);
-        fflush(stdout); // Ensure the prompt is displayed immediately
-
+        fflush(stdout);        // Ensure the prompt is displayed immediately
         read_command(command); // Read command with arrow key handling
         if (strlen(command) == 0)
             continue;
-        //        printf("The command is --> %s\n", command);
 
         token = strtok(command, "|"); // ls -l
         char *token_copy = strdup(token);
         while (token != NULL)
         {
-            //            printf("The token is --> %s\n", token);
             cmds[cmd_count] = parse_command(&token, &argcs[cmd_count]);
             cmd_count++;
             token = strtok(NULL, "|"); // ls -l
-            //            printf("The cmds[%d] is --> %s\n",cmd_count-1, *cmds[cmd_count-1]);
         }
         cmds[cmd_count] = NULL;
-
-        //        printf("The cmd_count is --> %d\n", cmd_count);
 
         if (cmd_count == 1)
         {
@@ -554,8 +620,6 @@ int main()
             if (k < cmd_count - 1)
             { // Need to pipe to the next command
                 pipe(fds);
-                printf("Creat a new pipe!\n");
-                //                printf("The cmd_count is --> %d\n", cmd_count);
             }
 
             int pid = fork();
@@ -564,27 +628,20 @@ int main()
             { // Child process
 
                 if (k > 0)
-                {   // Not the first command - define the input from the prev pipe.
-                    //                    printf("Define the input frome the prev pipe, pid is --> %d, the k is --> %d\n", pid, k);
+                { // Not the first command - define the input from the prev pipe.
                     dup2(oldfds, STDIN_FILENO);
                     close(oldfds);
                 }
 
                 if (k < cmd_count - 1)
-                {   // Not the last command - define the output to the next pipe.
-                    //                    printf("Define the output to the next pipe, pid is --> %d, the k is --> %d\n", pid, k);
+                { // Not the last command - define the output to the next pipe.
                     close(fds[0]);
                     dup2(fds[1], STDOUT_FILENO);
                     close(fds[1]);
                 }
 
-                //                printf("Send to exe the command --> %s, the k is --> %d\n", cmds[k][0], k);
-                //                sleep(3);
                 handle_exce(cmds[k][0], cmds[k], argcs[k]);
 
-                // execvp(cmds[k][0], cmds[k]);
-                // fprintf(stderr, "Failed to execute '%s'\n", cmds[k][0]);
-                // exit(1);
                 exit(0);
             }
 
@@ -597,7 +654,6 @@ int main()
             { // Not the last command
                 close(fds[1]);
                 oldfds = fds[0];
-                //                printf("Define the oldfd, pid is --> %d\n", pid);
             }
 
             free_args(cmds[k], argcs[k]);
@@ -612,18 +668,3 @@ int main()
 
     return 0;
 }
-
-// What till now?
-// 1 - (>, >>, 2>) works perfect, also in redirection.
-// 2 - (prompt = ) works only if the cmd_count = 1.
-// 3 - (echo) works perfect, in redirection print only the last one.
-// 4 - (echo $?) only gets the execvp() status.*
-// 5 - (cd) works only if cmd_count = 1.
-// 6 - (!!) work well if cmd_count = 1, else print Error !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-// 7 - (quit) - works only if the cmd_count = 1.
-// 8 - (Control-C) works perfect.
-// 9 - (pipe "|") looks good, hard to test it.
-// 10 - ($var) works only if cmd_count = 1.
-// 11 - (read) works only if cmd_count = 1.
-// 12 - (up & down) works perfect.
-// 13 - (if condition) still in process.
